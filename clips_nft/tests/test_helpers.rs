@@ -145,8 +145,7 @@ pub fn simulate_sale(
     ctx.client.set_royalty(&ctx.admin, &token_id, &updated);
 
     let info = ctx.client.royalty_info(&token_id, &sale_price);
-    ctx.client.pay_royalty(seller, &token_id, &sale_price);
-    ctx.client.transfer(seller, buyer, &token_id);
+    ctx.client.transfer(seller, buyer, &token_id, &sale_price, &Some(asset_address.clone()));
 
     info.royalty_amount
 }

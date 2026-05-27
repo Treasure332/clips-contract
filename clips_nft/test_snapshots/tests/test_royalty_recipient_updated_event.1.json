@@ -38,7 +38,7 @@
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM"
                 },
                 {
-                  "bytes": "51c0ea021662b3415dd2a971d67acf01b6fed6848dbf05e8e0a0432b09af221e"
+                  "bytes": "944cd0b0cfc2e61832919806eccf4f24d692c0ce62b9f1aa427db0abaadeba7e"
                 }
               ]
             }
@@ -110,7 +110,7 @@
                   "bool": false
                 },
                 {
-                  "bytes": "35f5a7203faacdac9b64e59478c6396bed6fac8469b1dd3f0ccc1d7e11cf533ad7cb7c0eeac49e919b5764fa3be038d9a19bb43bbb2ffdebed6693f96f76940a"
+                  "bytes": "ea82f67bed6b08b5196435b8e48a3555363883625f217e62a7bc8015b3e1a8bd91da34f26e632c8a53d9bffbfc49dc7b0ad68e06908f087375fdf66e9efb0906"
                 }
               ]
             }
@@ -540,6 +540,66 @@
                       "key": {
                         "vec": [
                           {
+                            "symbol": "CircuitBreakerEnabled"
+                          }
+                        ]
+                      },
+                      "val": {
+                        "bool": false
+                      }
+                    },
+                    {
+                      "key": {
+                        "vec": [
+                          {
+                            "symbol": "CircuitBreakerThreshold"
+                          }
+                        ]
+                      },
+                      "val": {
+                        "u64": "100"
+                      }
+                    },
+                    {
+                      "key": {
+                        "vec": [
+                          {
+                            "symbol": "CircuitBreakerWindowCount"
+                          }
+                        ]
+                      },
+                      "val": {
+                        "u64": "0"
+                      }
+                    },
+                    {
+                      "key": {
+                        "vec": [
+                          {
+                            "symbol": "CircuitBreakerWindowSeconds"
+                          }
+                        ]
+                      },
+                      "val": {
+                        "u64": "60"
+                      }
+                    },
+                    {
+                      "key": {
+                        "vec": [
+                          {
+                            "symbol": "CircuitBreakerWindowStart"
+                          }
+                        ]
+                      },
+                      "val": {
+                        "u64": "0"
+                      }
+                    },
+                    {
+                      "key": {
+                        "vec": [
+                          {
                             "symbol": "CountMint"
                           }
                         ]
@@ -617,7 +677,7 @@
                         ]
                       },
                       "val": {
-                        "bytes": "51c0ea021662b3415dd2a971d67acf01b6fed6848dbf05e8e0a0432b09af221e"
+                        "bytes": "944cd0b0cfc2e61832919806eccf4f24d692c0ce62b9f1aa427db0abaadeba7e"
                       }
                     },
                     {

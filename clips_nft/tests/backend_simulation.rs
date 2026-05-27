@@ -138,7 +138,7 @@ fn test_royalty_on_secondary_sale() {
     let token_id = client.mint(&creator, &clip_id, &metadata_uri, &None, &None, &royalty, &false, &signature);
 
     // 2. Primary sale: creator -> buyer1 (handled off-chain or via another contract, here we just transfer)
-    client.transfer(&creator, &buyer1, &token_id);
+    client.transfer(&creator, &buyer1, &token_id, &0, &None);
     assert_eq!(client.owner_of(&token_id), buyer1);
 
     // 3. Secondary sale: buyer1 -> buyer2
@@ -153,7 +153,7 @@ fn test_royalty_on_secondary_sale() {
     assert_eq!(token_client.balance(&buyer1), 1000 - 60);
 
     // Complete the transfer
-    client.transfer(&buyer1, &buyer2, &token_id);
+    client.transfer(&buyer1, &buyer2, &token_id, &0, &None);
     assert_eq!(client.owner_of(&token_id), buyer2);
 }
 
@@ -195,7 +195,7 @@ fn test_error_cases() {
     let token_id = 1;
     client.pause(&admin);
     env.ledger().with_mut(|l| l.timestamp += 86_400 + 1);
-    let result = client.try_transfer(&user, &malicious, &token_id);
+    let result = client.try_transfer(&user, &malicious, &token_id, &0, &None);
     assert!(result.is_err());
 
     // Case 5: Signature for wrong owner is rejected

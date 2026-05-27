@@ -38,7 +38,7 @@
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM"
                 },
                 {
-                  "bytes": "3d1154d57bddf1b9a09b3a782f5a591bd8fbe3e20039073367f1b68062cd7c8f"
+                  "bytes": "c7f0045c92e742f2d57685375746c32319e8b552a29689f0806f9cb2644e3b8d"
                 }
               ]
             }
@@ -110,7 +110,7 @@
                   "bool": false
                 },
                 {
-                  "bytes": "36ee3f5320286a0d76bc52c0391e09bb98975fd25eede9eaf569a84b55f04f80bd94dee6e861cae7cfe6912e79d8c121f8aafec9a008062c2b819a9db212200b"
+                  "bytes": "c24c45728eacce5c82b3a3d171647b90c0e79588c351f801f6e32984fee910de496e1d32bb63829e2cc63af9741c94daceb84913b84664a9eeaf94d06a6c1100"
                 }
               ]
             }
@@ -182,7 +182,7 @@
                   "bool": false
                 },
                 {
-                  "bytes": "e3ad7401fc0333bbdf29e492447bdd69d2b7b744f94129dcd49cfef9876147d931a2970d9cbd94c5da2ad54ceb52b2930555ee4ee440258f502e4226e8d99d01"
+                  "bytes": "1d99233ef80545addc19edd9486c50df9e1ac7e90e2630e5db8d1aabc85026c5a5a60c89e0928987f5be82dfec35f8b0ad1c88b30bb726be1526f07c771f580c"
                 }
               ]
             }
@@ -254,7 +254,7 @@
                   "bool": false
                 },
                 {
-                  "bytes": "55252df9bb450f4694fdcfed90f6e06417028f808e6dc3b7f8155e69d64593ef64110d113fd672fb28c5f3ec15808a7fbc6dbec2d89508e727da0adeafa74800"
+                  "bytes": "c539a649d9217a38f5c088a3c99fcc8f4e2b53d3e0dcc66094b349faba591a1b0ffea54e5187354f9630062b20926cfa99897efbf0706ce52eb580cda2469100"
                 }
               ]
             }
@@ -1009,6 +1009,66 @@
                       "key": {
                         "vec": [
                           {
+                            "symbol": "CircuitBreakerEnabled"
+                          }
+                        ]
+                      },
+                      "val": {
+                        "bool": false
+                      }
+                    },
+                    {
+                      "key": {
+                        "vec": [
+                          {
+                            "symbol": "CircuitBreakerThreshold"
+                          }
+                        ]
+                      },
+                      "val": {
+                        "u64": "100"
+                      }
+                    },
+                    {
+                      "key": {
+                        "vec": [
+                          {
+                            "symbol": "CircuitBreakerWindowCount"
+                          }
+                        ]
+                      },
+                      "val": {
+                        "u64": "0"
+                      }
+                    },
+                    {
+                      "key": {
+                        "vec": [
+                          {
+                            "symbol": "CircuitBreakerWindowSeconds"
+                          }
+                        ]
+                      },
+                      "val": {
+                        "u64": "60"
+                      }
+                    },
+                    {
+                      "key": {
+                        "vec": [
+                          {
+                            "symbol": "CircuitBreakerWindowStart"
+                          }
+                        ]
+                      },
+                      "val": {
+                        "u64": "0"
+                      }
+                    },
+                    {
+                      "key": {
+                        "vec": [
+                          {
                             "symbol": "CountMint"
                           }
                         ]
@@ -1086,7 +1146,7 @@
                         ]
                       },
                       "val": {
-                        "bytes": "3d1154d57bddf1b9a09b3a782f5a591bd8fbe3e20039073367f1b68062cd7c8f"
+                        "bytes": "c7f0045c92e742f2d57685375746c32319e8b552a29689f0806f9cb2644e3b8d"
                       }
                     },
                     {

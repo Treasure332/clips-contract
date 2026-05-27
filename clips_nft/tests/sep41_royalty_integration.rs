@@ -98,7 +98,7 @@ fn test_sep41_secondary_sale_buyer_pays_royalty_then_transfer() {
     let sale_price = 1_000_000i128;
     let info = ctx.client.royalty_info(&token_id, &sale_price);
     ctx.client.pay_royalty(&buyer, &token_id, &sale_price);
-    ctx.client.transfer(&seller, &buyer, &token_id);
+    ctx.client.transfer(&seller, &buyer, &token_id, &0, &None);
 
     assert_eq!(ctx.client.owner_of(&token_id), buyer);
     assert!(info.royalty_amount > 0);
@@ -155,4 +155,79 @@ fn test_sep41_royalty_info_matches_paid_total() {
     let creator_balance = token::TokenClient::new(ctx.env, &asset).balance(&creator);
     assert!(creator_balance > 0);
     assert!(creator_balance <= info.royalty_amount);
+}
+
+#[test]
+fn test_transfer_with_royalty_enforcement_custom_asset() {
+    let ctx = setup();
+    let creator = Address::generate(ctx.env);
+    let seller = Address::generate(ctx.env);
+    let buyer = Address::generate(ctx.env);
+    let asset = deploy_token(ctx.env, &buyer, 10_000_000);
+
+    // Mint token for seller
+    let token_id = mint_clip(&ctx, &seller, 601, false);
+
+    // Set royalty with custom asset
+    let mut recipients = Vec::new(ctx.env);
+    recipients.push_back(RoyaltyRecipient {
+        recipient: creator.clone(),
+        basis_points: 500, // 5%
+    });
+    let royalty = Royalty {
+        recipients,
+        asset_address: Some(asset.clone()),
+    };
+    ctx.client.set_royalty(&ctx.admin, &token_id, &royalty);
+
+    // Execute transfer with royalty enforcement
+    let sale_price = 1_000_000i128;
+    ctx.client.transfer(&seller, &buyer, &token_id, &sale_price, &Some(asset.clone()));
+
+    // Verify ownership
+    assert_eq!(ctx.client.owner_of(&token_id), buyer);
+
+    // Verify royalty payment
+    // Creator should get 5% of 1_000_000 = 50_000
+    let token_client = token::TokenClient::new(ctx.env, &asset);
+    assert_eq!(token_client.balance(&creator), 50_000);
+
+    // Platform (admin) should get 1% of 1_000_000 = 10_000
+    assert_eq!(token_client.balance(&ctx.admin), 10_000);
+}
+
+#[test]
+fn test_transfer_with_royalty_enforcement_xlm() {
+    let ctx = setup();
+    let creator = Address::generate(ctx.env);
+    let seller = Address::generate(ctx.env);
+    let buyer = Address::generate(ctx.env);
+    let mock_xlm = deploy_token(ctx.env, &buyer, 10_000_000);
+
+    // Mint token for seller
+    let token_id = mint_clip(&ctx, &seller, 602, false);
+
+    // Set royalty with None asset (XLM)
+    let mut recipients = Vec::new(ctx.env);
+    recipients.push_back(RoyaltyRecipient {
+        recipient: creator.clone(),
+        basis_points: 500, // 5%
+    });
+    let royalty = Royalty {
+        recipients,
+        asset_address: None,
+    };
+    ctx.client.set_royalty(&ctx.admin, &token_id, &royalty);
+
+    // Execute transfer with royalty enforcement
+    let sale_price = 1_000_000i128;
+    ctx.client.transfer(&seller, &buyer, &token_id, &sale_price, &Some(mock_xlm.clone()));
+
+    // Verify ownership
+    assert_eq!(ctx.client.owner_of(&token_id), buyer);
+
+    // Verify royalty payment
+    let token_client = token::TokenClient::new(ctx.env, &mock_xlm);
+    assert_eq!(token_client.balance(&creator), 50_000);
+    assert_eq!(token_client.balance(&ctx.admin), 10_000);
 }
