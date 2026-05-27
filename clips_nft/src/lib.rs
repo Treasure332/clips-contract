@@ -233,6 +233,26 @@ pub struct Royalty {
     pub asset_address: Option<Address>,
 }
 
+impl Royalty {
+    /// Compute the total royalty amount for a sale price using all recipients.
+    ///
+    /// This is the canonical internal helper used across royalty view and
+    /// payment paths.
+    fn calculate_royalty(&self, sale_price: i128) -> Result<i128, Error> {
+        if sale_price <= 0 {
+            return Err(Error::InvalidSalePrice);
+        }
+
+        let mut total_bps: u32 = 0;
+        for idx in 0..self.recipients.len() {
+            let split = self.recipients.get(idx).ok_or(Error::InvalidRoyaltySplit)?;
+            total_bps = total_bps.saturating_add(split.basis_points);
+        }
+
+        ClipsNftContract::calculate_royalty(sale_price, total_bps)
+    }
+}
+
 /// Royalty payment info returned by [`ClipsNftContract::royalty_info`].
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -2285,19 +2305,8 @@ impl ClipsNftContract {
         token_id: TokenId,
         sale_price: i128,
     ) -> Result<RoyaltyInfo, Error> {
-        if sale_price <= 0 {
-            return Err(Error::InvalidSalePrice);
-        }
-
         let royalty = Self::load_token(&env, token_id)?.royalty;
-
-        let mut total_bps: u32 = 0;
-        for idx in 0..royalty.recipients.len() {
-            let split = royalty.recipients.get(idx).ok_or(Error::InvalidRoyaltySplit)?;
-            total_bps = total_bps.saturating_add(split.basis_points);
-        }
-
-        let total_royalty_amount = Self::calculate_royalty(sale_price, total_bps)?;
+        let total_royalty_amount = royalty.calculate_royalty(sale_price)?;
         let first = royalty.recipients.get(0).ok_or(Error::InvalidRoyaltySplit)?;
 
         Ok(RoyaltyInfo {
@@ -2930,18 +2939,8 @@ impl ClipsNftContract {
         token_id: TokenId,
         sale_price: i128,
     ) -> Result<i128, Error> {
-        if sale_price <= 0 {
-            return Err(Error::InvalidSalePrice);
-        }
-
         let royalty = Self::load_token(&env, token_id)?.royalty;
-        let mut total_bps: u32 = 0;
-        for idx in 0..royalty.recipients.len() {
-            let split = royalty.recipients.get(idx).ok_or(Error::InvalidRoyaltySplit)?;
-            total_bps = total_bps.saturating_add(split.basis_points);
-        }
-
-        Self::calculate_royalty(sale_price, total_bps)
+        royalty.calculate_royalty(sale_price)
     }
 
     // -------------------------------------------------------------------------
@@ -3731,6 +3730,79 @@ mod tests {
             &old_sig,
         );
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_blacklist_clip_prevents_mint() {
+        let (env, admin, user1, _) = setup();
+        let contract_id = env.register(ClipsNftContract, ());
+        let client = ClipsNftContractClient::new(&env, &contract_id);
+        client.init(&admin);
+        let kp = register_signer(&env, &client, &admin);
+
+        let clip_id = 777u32;
+        client.blacklist_clip(&admin, &clip_id);
+
+        let uri = String::from_str(&env, "ipfs://QmBlacklisted");
+        let sig = sign_mint(&env, &kp, &user1, clip_id, &uri);
+        let result = client.try_mint(
+            &user1,
+            &clip_id,
+            &uri,
+            &None,
+            &None,
+            &default_royalty(&env, user1.clone()),
+            &false,
+            &sig,
+        );
+        assert_eq!(result, Err(Ok(Error::ClipBlacklisted)));
+    }
+
+    #[test]
+    fn test_blacklist_clip_emits_event() {
+        let (env, admin, _, _) = setup();
+        let contract_id = env.register(ClipsNftContract, ());
+        let client = ClipsNftContractClient::new(&env, &contract_id);
+        client.init(&admin);
+
+        client.blacklist_clip(&admin, &888u32);
+        let events = env.events().all();
+        assert!(!events.events().is_empty());
+    }
+
+    #[test]
+    fn test_royalty_helper_zero_price_fails() {
+        let (env, _, user1, _) = setup();
+        let mut recipients = Vec::new(&env);
+        recipients.push_back(RoyaltyRecipient {
+            recipient: user1,
+            basis_points: 10_000,
+        });
+        let royalty = Royalty {
+            recipients,
+            asset_address: None,
+        };
+
+        let result = royalty.calculate_royalty(0);
+        assert_eq!(result, Err(Error::InvalidSalePrice));
+    }
+
+    #[test]
+    fn test_royalty_helper_max_royalty_returns_full_sale_price() {
+        let (env, _, user1, _) = setup();
+        let mut recipients = Vec::new(&env);
+        recipients.push_back(RoyaltyRecipient {
+            recipient: user1,
+            basis_points: 10_000, // 100%
+        });
+        let royalty = Royalty {
+            recipients,
+            asset_address: None,
+        };
+
+        let sale_price = 123_456_789i128;
+        let amount = royalty.calculate_royalty(sale_price).unwrap();
+        assert_eq!(amount, sale_price);
     }
 
     #[test]
