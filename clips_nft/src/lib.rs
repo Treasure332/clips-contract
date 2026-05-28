@@ -302,6 +302,10 @@ pub struct CircuitBreakerResetEvent {}
 #[contracttype] #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AdminChangedEvent { pub old_admin: Address, pub new_admin: Address }
 
+// Emitted when contract ownership is fully transferred (two-step, #320).
+#[contracttype] #[derive(Clone, Debug, Eq, PartialEq)]
+pub struct OwnershipTransferredEvent { pub previous_owner: Address, pub new_owner: Address }
+
 #[contracttype] #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct RefundedEvent { pub token_id: TokenId, pub recipient: Address, pub amount: i128 }
 
@@ -356,6 +360,49 @@ impl ClipsNftContract {
         env.storage().instance().set(&DataKey::CircuitBreakerWindowStart, &0u64);
         env.storage().instance().set(&DataKey::CircuitBreakerWindowCount, &0u64);
         env.storage().instance().set(&DataKey::BackendAddress, &admin);
+    }
+
+    // -------------------------------------------------------------------------
+    // #320: Two-step ownership transfer
+    // -------------------------------------------------------------------------
+
+    /// Step 1: current admin proposes a new owner. Stores `new_owner` as pending.
+    /// The transfer is not final until `accept_ownership` is called by `new_owner`.
+    pub fn transfer_ownership(env: Env, admin: Address, new_owner: Address) -> Result<(), Error> {
+        Self::require_admin(&env, &admin)?;
+        env.storage().instance().set(&DataKey::PendingOwner, &new_owner);
+        Ok(())
+    }
+
+    /// Step 2: pending owner accepts and becomes the new admin.
+    /// Emits `OwnershipTransferred` event.
+    pub fn accept_ownership(env: Env, new_owner: Address) -> Result<(), Error> {
+        new_owner.require_auth();
+        let pending: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::PendingOwner)
+            .ok_or(Error::Unauthorized)?;
+        if pending != new_owner {
+            return Err(Error::Unauthorized);
+        }
+        let previous_owner: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .expect("Admin not initialized");
+        env.storage().instance().set(&DataKey::Admin, &new_owner);
+        env.storage().instance().remove(&DataKey::PendingOwner);
+        env.events().publish(
+            (symbol_short!("own_xfer"),),
+            OwnershipTransferredEvent { previous_owner, new_owner },
+        );
+        Ok(())
+    }
+
+    /// Returns the pending owner address, if any.
+    pub fn pending_owner(env: Env) -> Option<Address> {
+        env.storage().instance().get(&DataKey::PendingOwner)
     }
 
     // -------------------------------------------------------------------------
@@ -3115,6 +3162,63 @@ mod tests {
     }
 
     #[test]
+    fn test_transfer_ownership_two_step() {
+        let (env, admin, user1, _) = setup();
+        let contract_id = env.register(ClipsNftContract, ());
+        let client = ClipsNftContractClient::new(&env, &contract_id);
+        client.init(&admin);
+
+        // Step 1: admin proposes new owner
+        client.transfer_ownership(&admin, &user1);
+        assert_eq!(client.pending_owner(), Some(user1.clone()));
+
+        // Step 2: new owner accepts
+        client.accept_ownership(&user1);
+        assert_eq!(client.pending_owner(), None);
+        assert_eq!(client.contract_info().owner, user1);
+    }
+
+    #[test]
+    fn test_transfer_ownership_non_admin_fails() {
+        let (env, admin, user1, user2) = setup();
+        let contract_id = env.register(ClipsNftContract, ());
+        let client = ClipsNftContractClient::new(&env, &contract_id);
+        client.init(&admin);
+
+        assert_eq!(
+            client.try_transfer_ownership(&user1, &user2),
+            Err(Ok(Error::Unauthorized))
+        );
+    }
+
+    #[test]
+    fn test_accept_ownership_wrong_caller_fails() {
+        let (env, admin, user1, user2) = setup();
+        let contract_id = env.register(ClipsNftContract, ());
+        let client = ClipsNftContractClient::new(&env, &contract_id);
+        client.init(&admin);
+
+        client.transfer_ownership(&admin, &user1);
+        assert_eq!(
+            client.try_accept_ownership(&user2),
+            Err(Ok(Error::Unauthorized))
+        );
+    }
+
+    #[test]
+    fn test_accept_ownership_no_pending_fails() {
+        let (env, admin, user1, _) = setup();
+        let contract_id = env.register(ClipsNftContract, ());
+        let client = ClipsNftContractClient::new(&env, &contract_id);
+        client.init(&admin);
+
+        assert_eq!(
+            client.try_accept_ownership(&user1),
+            Err(Ok(Error::Unauthorized))
+        );
+    }
+
+    #[test]
     fn test_mint_cooldown_enforced_and_configurable() {
         let (env, admin, user1, _) = setup();
         let contract_id = env.register(ClipsNftContract, ());
@@ -4043,31 +4147,6 @@ mod tests {
         Ok(())
     }
 
-    /// Verify contract integrity after migration
-    /// Returns (total_supply, admin_address, version) for validation
-    pub fn contract_info(env: Env) -> ContractInfo {
-        let name = env.storage().instance().get::<DataKey, String>(&DataKey::Name)
-            .unwrap_or_else(|_| String::from_str(&env, "ClipCash Clips"));
-        let symbol = env.storage().instance().get::<DataKey, String>(&DataKey::Symbol)
-            .unwrap_or_else(|_| String::from_str(&env, "CLIP"));
-        let version = env.storage().instance().get(&DataKey::ContractVersion).unwrap_or(VERSION);
-        let owner = env.storage().instance().get(&DataKey::Admin)
-            .unwrap_or_else(|_| Address::generate(&env));
-        let platform_fee = env.storage().instance().get(&DataKey::PlatformFeeBps).unwrap_or(100);
-
-        ContractInfo {
-            name,
-            symbol,
-            version,
-            owner,
-            platform_fee,
-        }
-    }
-
-    /// Get total supply (preserved during upgrade)
-    pub fn total_supply(env: Env) -> u32 {
-        env.storage().instance().get(&DataKey::TotalSupply).unwrap_or(0)
-    }
 }
 
 #[cfg(test)]
