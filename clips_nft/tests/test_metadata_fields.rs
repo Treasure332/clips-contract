@@ -125,7 +125,7 @@ fn test_mint_with_invalid_image_url_fails() {
         &sig
     );
     
-    assert_eq!(result, Err(Ok(Error::InvalidImageUrl)));
+    assert_eq!(result, Err(Ok(Error::UnsupportedProtocol)));
 }
 
 #[test]
@@ -150,7 +150,7 @@ fn test_mint_with_invalid_animation_url_fails() {
         &sig
     );
     
-    assert_eq!(result, Err(Ok(Error::InvalidAnimationUrl)));
+    assert_eq!(result, Err(Ok(Error::UnsupportedProtocol)));
 }
 
 #[test]
@@ -227,7 +227,7 @@ fn test_refresh_metadata_with_invalid_image_url_fails() {
         &None
     );
     
-    assert_eq!(result, Err(Ok(Error::InvalidImageUrl)));
+    assert_eq!(result, Err(Ok(Error::UnsupportedProtocol)));
 }
 
 #[test]

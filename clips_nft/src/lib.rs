@@ -135,10 +135,10 @@ pub enum Error {
     InsufficientBalance = 19,
     /// Metadata was refreshed too recently (30-day cooldown not elapsed).
     MetadataRefreshTooSoon = 20,
-    /// Image URL must start with "https://" or "ipfs://".
-    InvalidImageUrl = 21,
-    /// Animation URL must start with "https://" or "ipfs://".
-    InvalidAnimationUrl = 22,
+    /// URL protocol is not supported. Allowed: "https://" and "ipfs://".
+    UnsupportedProtocol = 21,
+    /// URL format is malformed.
+    MalformedUrl = 22,
     /// Mint attempted before wallet cooldown elapsed.
     MintCooldownActive = 23,
     /// Reentrant call detected while a guarded entrypoint is executing.
@@ -342,6 +342,8 @@ pub enum DataKey {
     PlatformFeeBps,
     /// Default royalty in basis points (instance).
     DefaultRoyaltyBps,
+    /// Default royalty asset contract for new mints when token royalty asset is omitted.
+    DefaultRoyaltyAsset,
     /// Accumulated royalty balance per token (persistent).
     RoyaltyBalance(TokenId),
     /// Last successful mint timestamp per wallet (persistent).
@@ -675,6 +677,7 @@ impl ClipsNftContract {
         env.storage().instance().set(&DataKey::NextTokenId, &1u32);
         env.storage().instance().set(&DataKey::Paused, &false);
         env.storage().instance().set(&DataKey::PlatformRecipient, &admin);
+        env.storage().instance().set(&DataKey::DefaultRoyaltyAsset, &Option::<Address>::None);
         env.storage()
             .instance()
             .set(&DataKey::Name, &String::from_str(&env, "ClipCash Clips"));
@@ -1047,8 +1050,8 @@ impl ClipsNftContract {
     /// * [`Error::ClipBlacklisted`] — this clip_id has been blacklisted.
     /// * [`Error::InvalidSignature`] — backend signature is invalid.
     /// * [`Error::SignerNotSet`] — no backend signer has been registered.
-    /// * [`Error::InvalidImageUrl`] — image URL does not start with "https://" or "ipfs://".
-    /// * [`Error::InvalidAnimationUrl`] — animation_url does not start with "https://" or "ipfs://".
+    /// * [`Error::UnsupportedProtocol`] — URL protocol is not `https://` or `ipfs://`.
+    /// * [`Error::MalformedUrl`] — URL format is malformed.
     pub fn mint(
         env: Env,
         to: Address,
@@ -1066,8 +1069,8 @@ impl ClipsNftContract {
         Self::check_circuit_breaker(&env, 1)?;
 
         // Validate URLs before any state reads/writes.
-        Self::validate_url(&env, &image, Error::InvalidImageUrl)?;
-        Self::validate_url(&env, &animation_url, Error::InvalidAnimationUrl)?;
+        Self::validate_url(&env, &image)?;
+        Self::validate_url(&env, &animation_url)?;
 
         // Verify backend signature before any state reads/writes.
         Self::verify_clip_signature(&env, &to, clip_id, &metadata_uri, &signature)?;
@@ -1516,8 +1519,51 @@ impl ClipsNftContract {
     ///
     /// ⚠️ **Access Control: Admin only.**
     ///
-    /// Useful for resetting the circuit breaker after a false alarm or
-    /// after the contract has been unpaused.
+    /// Emits: `"cfg_upd"` [`ConfigUpdatedEvent`] with key `"default_royalty"`.
+    pub fn set_default_royalty(env: Env, admin: Address, bps: u32) -> Result<(), Error> {
+        Self::require_admin(&env, &admin)?;
+        if bps as u32 > 10_000 {
+            return Err(Error::RoyaltyTooHigh);
+        }
+        env.storage().instance().set(&DataKey::DefaultRoyaltyBps, &(bps as u32));
+        env.events().publish(
+            (symbol_short!("cfg_upd"),),
+            ConfigUpdatedEvent {
+                key: String::from_str(&env, "default_royalty"),
+                new_value: bps as u32,
+            },
+        );
+        Ok(())
+    }
+
+    /// Get the current default royalty in basis points.
+    pub fn get_default_royalty(env: Env) -> u32 {
+        env.storage().instance().get(&DataKey::DefaultRoyaltyBps).unwrap_or(500)
+    }
+
+    /// Set the collection-wide default royalty asset for future mints.
+    ///
+    /// `Some(address)` sets the default SEP-0041 token.
+    /// `None` clears it.
+    pub fn set_default_royalty_asset(
+        env: Env,
+        admin: Address,
+        asset_address: Option<Address>,
+    ) -> Result<(), Error> {
+        Self::require_admin(&env, &admin)?;
+        env.storage().instance().set(&DataKey::DefaultRoyaltyAsset, &asset_address);
+        Ok(())
+    }
+
+    /// Get the current collection-wide default royalty asset.
+    pub fn get_default_royalty_asset(env: Env) -> Option<Address> {
+        env.storage()
+            .instance()
+            .get::<DataKey, Option<Address>>(&DataKey::DefaultRoyaltyAsset)
+            .unwrap_or(None)
+    }
+
+    /// Set wallet mint cooldown in seconds.
     ///
     /// # Arguments
     /// * `admin` — Must be the contract admin.
@@ -1596,8 +1642,8 @@ impl ClipsNftContract {
     /// * [`Error::Unauthorized`] — caller is not admin or backend address.
     /// * [`Error::InvalidTokenId`] — token does not exist.
     /// * [`Error::MetadataRefreshTooSoon`] — 30-day cooldown not elapsed.
-    /// * [`Error::InvalidImageUrl`] — image URL does not start with "https://" or "ipfs://".
-    /// * [`Error::InvalidAnimationUrl`] — animation_url does not start with "https://" or "ipfs://".
+    /// * [`Error::UnsupportedProtocol`] — URL protocol is not `https://` or `ipfs://`.
+    /// * [`Error::MalformedUrl`] — URL format is malformed.
     pub fn refresh_metadata(
         env: Env,
         caller: Address,
@@ -1646,7 +1692,7 @@ impl ClipsNftContract {
         let validated_image = match &image {
             Some(s) if s.is_empty() => Some(None), // Clear field
             Some(s) => {
-                Self::validate_url(&env, &Some(s.clone()), Error::InvalidImageUrl)?;
+                Self::validate_url(&env, &Some(s.clone()))?;
                 Some(Some(s.clone()))
             }
             None => None, // Leave unchanged
@@ -1655,7 +1701,7 @@ impl ClipsNftContract {
         let validated_animation_url = match &animation_url {
             Some(s) if s.is_empty() => Some(None), // Clear field
             Some(s) => {
-                Self::validate_url(&env, &Some(s.clone()), Error::InvalidAnimationUrl)?;
+                Self::validate_url(&env, &Some(s.clone()))?;
                 Some(Some(s.clone()))
             }
             None => None, // Leave unchanged
@@ -2817,8 +2863,8 @@ impl ClipsNftContract {
             let signature = signatures.get(i).ok_or(Error::InvalidTokenId)?;
 
             // Validate URLs
-            Self::validate_url(&env, &image, Error::InvalidImageUrl)?;
-            Self::validate_url(&env, &animation_url, Error::InvalidAnimationUrl)?;
+            Self::validate_url(&env, &image)?;
+            Self::validate_url(&env, &animation_url)?;
 
             Self::verify_clip_signature(&env, &to, clip_id, &metadata_uri, &signature)?;
 
@@ -3246,7 +3292,12 @@ impl ClipsNftContract {
         if royalty.recipients.is_empty() {
             return Err(Error::InvalidRoyaltySplit);
         }
-        let asset_address = royalty.asset_address.clone();
+        let default_asset = env
+            .storage()
+            .instance()
+            .get::<DataKey, Option<Address>>(&DataKey::DefaultRoyaltyAsset)
+            .unwrap_or(None);
+        let asset_address = royalty.asset_address.clone().or(default_asset);
 
         let platform: Address = env
             .storage()
@@ -3284,13 +3335,27 @@ impl ClipsNftContract {
         })
     }
 
-    /// Validate that a URL starts with `https://` or `ipfs://`.
-    fn validate_url(env: &Env, url: &Option<String>, error: Error) -> Result<(), Error> {
+    /// Validate URL format and supported protocol.
+    fn validate_url(_env: &Env, url: &Option<String>) -> Result<(), Error> {
         if let Some(ref u) = url {
-            if !Self::url_starts_with(env, u, b"https://")
-                && !Self::url_starts_with(env, u, b"ipfs://")
-            {
-                return Err(error);
+            let bytes = u.to_bytes();
+            if bytes.len() == 0 {
+                return Err(Error::MalformedUrl);
+            }
+
+            let scheme_end = Self::find_scheme_separator(&bytes).ok_or(Error::MalformedUrl)?;
+            if scheme_end == 0 || scheme_end + 3 >= bytes.len() {
+                return Err(Error::MalformedUrl);
+            }
+
+            if Self::has_ascii_whitespace(&bytes) {
+                return Err(Error::MalformedUrl);
+            }
+
+            let is_https = Self::bytes_equal_prefix(&bytes, scheme_end, b"https");
+            let is_ipfs = Self::bytes_equal_prefix(&bytes, scheme_end, b"ipfs");
+            if !is_https && !is_ipfs {
+                return Err(Error::UnsupportedProtocol);
             }
         }
         Ok(())
@@ -3303,12 +3368,23 @@ impl ClipsNftContract {
         if bytes.len() < prefix_len {
             return false;
         }
-        for i in 0..prefix_len {
+        for i in 0..end {
             if bytes.get(i) != Some(prefix[i as usize]) {
                 return false;
             }
         }
         true
+    }
+
+    fn has_ascii_whitespace(bytes: &Bytes) -> bool {
+        for i in 0..bytes.len() {
+            if let Some(ch) = bytes.get(i) {
+                if ch == b' ' || ch == b'\n' || ch == b'\r' || ch == b'\t' {
+                    return true;
+                }
+            }
+        }
+        false
     }
 
     /// Append a Soroban [`String`] onto a byte buffer used for JSON assembly.
@@ -3780,6 +3856,102 @@ mod tests {
         let sale_price = 123_456_789i128;
         let amount = royalty.calculate_royalty(sale_price).unwrap();
         assert_eq!(amount, sale_price);
+    }
+
+    #[test]
+    fn test_mint_fails_with_unsupported_url_protocol() {
+        let (env, admin, user1, _) = setup();
+        let contract_id = env.register(ClipsNftContract, ());
+        let client = ClipsNftContractClient::new(&env, &contract_id);
+        client.init(&admin);
+        let kp = register_signer(&env, &client, &admin);
+
+        let uri = String::from_str(&env, "ipfs://QmExample");
+        let sig = sign_mint(&env, &kp, &user1, 808, &uri);
+        let image = Some(String::from_str(&env, "ftp://example.com/poster.png"));
+
+        let result = client.try_mint(
+            &user1,
+            &808u32,
+            &uri,
+            &image,
+            &None,
+            &default_royalty(&env, user1.clone()),
+            &false,
+            &sig,
+        );
+        assert_eq!(result, Err(Ok(Error::UnsupportedProtocol)));
+    }
+
+    #[test]
+    fn test_mint_fails_with_malformed_url() {
+        let (env, admin, user1, _) = setup();
+        let contract_id = env.register(ClipsNftContract, ());
+        let client = ClipsNftContractClient::new(&env, &contract_id);
+        client.init(&admin);
+        let kp = register_signer(&env, &client, &admin);
+
+        let uri = String::from_str(&env, "ipfs://QmExample");
+        let sig = sign_mint(&env, &kp, &user1, 809, &uri);
+        let image = Some(String::from_str(&env, "https://"));
+
+        let result = client.try_mint(
+            &user1,
+            &809u32,
+            &uri,
+            &image,
+            &None,
+            &default_royalty(&env, user1.clone()),
+            &false,
+            &sig,
+        );
+        assert_eq!(result, Err(Ok(Error::MalformedUrl)));
+    }
+
+    #[test]
+    fn test_default_royalty_asset_applied_when_not_provided() {
+        let (env, admin, user1, _) = setup();
+        let contract_id = env.register(ClipsNftContract, ());
+        let client = ClipsNftContractClient::new(&env, &contract_id);
+        client.init(&admin);
+        let kp = register_signer(&env, &client, &admin);
+
+        let default_asset = Address::generate(&env);
+        client.set_default_royalty_asset(&admin, &Some(default_asset.clone()));
+        assert_eq!(client.get_default_royalty_asset(), Some(default_asset.clone()));
+
+        let token_id = do_mint(&client, &env, &user1, 901, &kp);
+        let stored = client.get_royalty(&token_id);
+        assert_eq!(stored.asset_address, Some(default_asset));
+    }
+
+    #[test]
+    fn test_explicit_royalty_asset_overrides_default() {
+        let (env, admin, user1, _) = setup();
+        let contract_id = env.register(ClipsNftContract, ());
+        let client = ClipsNftContractClient::new(&env, &contract_id);
+        client.init(&admin);
+        let kp = register_signer(&env, &client, &admin);
+
+        let default_asset = Address::generate(&env);
+        let explicit_asset = Address::generate(&env);
+        client.set_default_royalty_asset(&admin, &Some(default_asset));
+
+        let mut recipients = Vec::new(&env);
+        recipients.push_back(RoyaltyRecipient {
+            recipient: user1.clone(),
+            basis_points: 500,
+        });
+        let royalty = Royalty {
+            recipients,
+            asset_address: Some(explicit_asset.clone()),
+        };
+        let uri = String::from_str(&env, "ipfs://QmCustomAsset");
+        let sig = sign_mint(&env, &kp, &user1, 902, &uri);
+        let token_id = client.mint(&user1, &902u32, &uri, &None, &None, &royalty, &false, &sig);
+
+        let stored = client.get_royalty(&token_id);
+        assert_eq!(stored.asset_address, Some(explicit_asset));
     }
 
     #[test]
